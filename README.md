@@ -80,6 +80,7 @@ _✨ 分析群聊记录，生成近期讨论话题的总结。 ✨_
 | wt_model | 否 | "gemini-2.0-flash-exp" | 总结使用的AI模型 |
 | wt_proxy | 否 | 无 | 访问Gemini使用的代理，格式为`"http://<ip>:<port>"` |
 | wt_history_lens | 否 | 1000 | 总结使用的群聊条数 |
+| wt_max_tokens | 否 | 2000 | 总结输出的最大字数 |
 | wt_push_cron | 否 | "0 14,22 * * *" | 定时推送的时间，只支持Cron表达式 |
 | wt_group_list | 否 | 无 | 定时推送的群列表 |
 
