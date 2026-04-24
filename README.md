@@ -77,7 +77,8 @@ _✨ 分析群聊记录，生成近期讨论话题的总结。 ✨_
 |:-----:|:----:|:----:|:----:|
 | wt_ai_keys | 是 | 无 | [Gemini API Key](https://aistudio.google.com/app/apikey?), 可填入多个key, 格式为`["xxx","xxx"]` |
 | wt_base_url | 否 | "https://generativelanguage.googleapis.com/v1beta" | API地址，兼容OpenAI格式, 可填入多个key, 格式为`["xxx","xxx"]` |
-| wt_model | 否 | "gemini-2.0-flash-exp" | 总结使用的AI模型 |
+| wt_model | 否 | "gemini-flash-latest" | 总结使用的AI模型 |
+| wt_thinking | 否 | None | 是否开启思考模式，None=不传递，True=开启，False=显式关闭 |
 | wt_proxy | 否 | 无 | 访问Gemini使用的代理，格式为`"http://<ip>:<port>"` |
 | wt_history_lens | 否 | 1000 | 总结使用的群聊条数 |
 | wt_max_tokens | 否 | 2000 | 总结输出的最大字数 |

@@ -40,6 +40,7 @@ wt_history_lens = plugin_config.wt_history_lens
 wt_max_tokens = plugin_config.wt_max_tokens
 wt_push_cron = plugin_config.wt_push_cron
 wt_group_list = plugin_config.wt_group_list
+wt_thinking = plugin_config.wt_thinking
 
 
 # 注册事件响应器
@@ -235,8 +236,20 @@ async def chat_with_gemini(messages, member_count, first_time=None, last_time=No
                     {"parts": [{"text": "\n".join(compressed_messages)}], "role": "user"},
                 ]
             }
+
         else:
             url = f"{wt_base_url}/chat/completions"
+            data = {
+                "model": wt_model_name,
+                "messages": [
+                    {"role": "system", "content": prompt},
+                    {"role": "user", "content": "\n".join(compressed_messages)},
+                ],
+            }
+            
+            if wt_thinking is not None:
+                data["reasoning_effort"] = "high"
+                data["extra_body"] = {"thinking": {"type": "enabled" if wt_thinking else "disabled"}}
 
         try:
             async with httpx.AsyncClient(
