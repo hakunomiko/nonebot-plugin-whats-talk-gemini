@@ -18,8 +18,8 @@ __plugin_meta__ = PluginMetadata(
     name="他们在聊什么",
     description="分析群聊记录，生成近期讨论话题的总结。",
     usage=(
-        "发送指令“他们在聊什么”或“群友在聊什么”以获取当前群聊的讨论总结。\n"
-        "插件会定期自动推送群聊讨论总结，推送时间可配置。"
+        '发送指令"他们在聊什么"或"群友在聊什么"以获取当前群聊的讨论总结。'
+        '插件会定期自动推送群聊讨论总结，推送时间可配置。'
     ),
     type="application",
     homepage="https://github.com/hakunomiko/nonebot-plugin-whats-talk-gemini",
@@ -31,13 +31,16 @@ __plugin_meta__ = PluginMetadata(
 # 加载插件配置
 plugin_config = get_plugin_config(Config)
 wt_api_keys = plugin_config.wt_ai_keys
+wt_base_url = plugin_config.wt_base_url
 if not wt_api_keys:
     raise ValueError("配置文件中未提供 API Key 列表。")
 wt_model_name = plugin_config.wt_model
 wt_proxy = plugin_config.wt_proxy
 wt_history_lens = plugin_config.wt_history_lens
+wt_max_tokens = plugin_config.wt_max_tokens
 wt_push_cron = plugin_config.wt_push_cron
 wt_group_list = plugin_config.wt_group_list
+wt_thinking = plugin_config.wt_thinking
 
 
 # 注册事件响应器
@@ -55,11 +58,11 @@ whats_talk = on_command(
 async def handle_whats_talk(bot: Bot, event: GroupMessageEvent):
     group_id = event.group_id
     try:
-        messages = await get_history_chat(bot, group_id)
+        messages, first_time, last_time = await get_history_chat(bot, group_id)
         member_count = await get_group_member(bot, group_id)
         if not messages:
             await whats_talk.finish("未能获取到聊天记录。")
-        summary = await chat_with_gemini(messages, member_count)
+        summary = await chat_with_gemini(messages, member_count, first_time, last_time)
         if not summary:
             await whats_talk.finish("生成聊天总结失败，请稍后再试。")
         await bot.send_group_forward_msg(
@@ -95,6 +98,8 @@ async def get_group_member(bot: Bot, group_id: int) -> int:
 # 获取群聊记录
 async def get_history_chat(bot: Bot, group_id: int):
     messages = []
+    first_time = None
+    last_time = None
     try:
         history = await bot.get_group_msg_history(
             group_id=group_id,
@@ -105,130 +110,181 @@ async def get_history_chat(bot: Bot, group_id: int):
             sender = message["sender"]["card"] or message["sender"]["nickname"]
             text_messages = []
             if isinstance(message["message"], list):
-                text_messages = [msg["data"]["text"] for msg in message["message"] if msg["type"] == "text"]
+                text_messages = [
+                    msg["data"]["text"]
+                    for msg in message["message"]
+                    if msg["type"] == "text"
+                ]
             elif isinstance(message["message"], str) and "CQ:" not in message["message"]:
                 text_messages = [message["message"]]
-            messages.extend([f"{sender}: {text}" for text in text_messages])
+            if text_messages:
+                messages.append(f"{sender}: {''.join(text_messages)}")
+                ts = message.get("time")
+                if ts:
+                    if first_time is None:
+                        first_time = ts
+                    last_time = ts
     except Exception as e:
         logger.error(f"获取聊天记录失败: {e!s}")
         raise Exception(f"获取聊天记录失败,错误信息: {e!s}")
     logger.debug(messages)
-    return messages
+    return messages, first_time, last_time
 
 
 # 调用 AI 接口生成聊天总结
-async def chat_with_gemini(messages, member_count):
-    prompt = (
-        "# Role: 群友聊天总结专家\n"
-        "\n"
-        "## Profile\n"
-        "- author: LangGPT \n"
-        "- version: 1.3\n"
-        "- language: 中文\n"
-        "- description: 你是一名专业的群友聊天总结专家，擅长以话题为单位总结群内的讨论内容，"
-        "帮助新来的群友快速了解最近的聊天动态，并通过活跃度、信息熵、话题多样性等多维度提供互动评价，"
-        "同时对聊天内容进行全面概括。\n"
-        "\n"
-        "## Skills\n"
-        "1. 按照话题单位划分总结内容，确保逻辑清晰。\n"
-        "2. 提取关键信息并以简洁条目形式呈现。\n"
-        "3. 突出在讨论中贡献显著或关键用户的内容。\n"
-        "4. 量化群内互动情况，包括活跃度、信息熵、话题多样性和讨论深度等。\n"
-        "5. 提供对整体聊天内容的全面总结，突出群讨论的主题特点和质量。\n"
-        "\n"
-        "## Rules\n"
-        "1. 将聊天记录归纳为多个话题，并以编号形式呈现。\n"
-        "2. 在每个话题中，列出主要讨论内容，标注具有显著贡献的用户。\n"
-        "3. 在总结的结尾部分，提供基于以下多维度的互动评价：\n"
-        f"   - 活跃人数比例：基于群总人数（{member_count}人），30%（90人）视为最大活跃度，对应5⭐，活跃度按以下标准评分：\n"  # noqa: E501
-        "     - ⭐⭐⭐⭐⭐（≥30%），⭐⭐⭐⭐（20%-30%），⭐⭐⭐（10%-20%），⭐⭐（5%-10%），⭐（<5%）\n"
-        "   - 信息熵：衡量用户发言内容的分布均衡性，信息熵越高表示讨论越均衡和多样，5⭐表示高度均衡。\n"
-        "   - 话题多样性：统计活跃话题数量及其分布，更多高质量话题对应更高评分。\n"
-        "   - 深度评分：依据讨论的广度和深度评估，例如是否超越表面问题。\n"
-        "4. 在互动评价之后，增加一个整体总结模块，概述聊天内容的主题特点、活跃情况及整体讨论的质量。\n"
-        "5. 确保总结条理清晰，重点突出，评价内容准确客观。\n"
-        "\n"
-        "## Workflows\n"
-        "1. 接收聊天记录，解析并归类为不同话题。\n"
-        "2. 按话题梳理讨论内容，提炼关键信息。\n"
-        "3. 突出对话中的关键用户，标注其参与的具体内容。\n"
-        "4. 量化群内互动情况，并按以下方式评估：\n"
-        f"   - **活跃人数比例**：统计发言人数与群总人数（{member_count}人）的比值，以30%为5⭐标准线。\n"
-        "   - **信息熵**：计算发言频率的分布均衡性，公式为 \\( H = -\\sum (p_i \\cdot \\log_2 p_i) \\)，\\( p_i \\) 为用户发言比例。\n"  # noqa: E501
-        "   - **话题多样性**：统计活跃话题数量，并评估各话题的讨论平衡性。\n"
-        "   - **深度评分**：分析讨论是否超越基础问题，涉及深入见解或知识拓展。\n"
-        "5. 综合量化数据与文字描述，完成以下输出：\n"
-        "   - 话题划分与总结。\n"
-        "   - 多维度互动评价。\n"
-        "   - 整体总结。\n"
-        "\n"
-        "## OutputFormat\n"
-        "1. 每个话题编号呈现，并按以下格式输出：\n"
-        "   - **话题编号：话题标题**\n"
-        "   - **主要讨论内容**：\n"
-        "     - 内容1\n"
-        "     - 内容2\n"
-        "   - **关键贡献用户**：用户A（贡献内容简述），用户B（贡献内容简述）\n"
-        "2. 总结结尾处提供互动评价，格式如下：\n"
-        "   - **活跃人数**：{活跃人数}（占群总人数的{比例}%），评分：⭐（{评分依据}）\n"
-        "   - **信息熵**：{信息熵值}，评分：⭐（{评分依据}）\n"
-        "   - **话题多样性**：{话题数量}，评分：⭐（{评分依据}）\n"
-        "   - **深度评分**：⭐（{评分依据}）\n"
-        "3. 在互动评价后，增加整体总结模块，格式如下：\n"
-        "   - **整体总结**：\n"
-        "     - 本次群内讨论主要围绕以下主题展开：{主题概述}。\n"
-        "     - 群内整体活跃情况为{活跃评价}，讨论质量{讨论质量评价}。\n"
-        "     - 突出特点为：{总结群讨论的特色，例如高效解决问题、多样化话题等}。\n"
-        "\n"
-        "## 示例\n"
-        "**话题1：技术问题讨论**\n"
-        "- **主要讨论内容**：\n"
-        "  - 内容1\n"
-        "  - 内容2\n"
-        "- **关键贡献用户**：用户A（描述），用户B（描述）\n"
-        "\n"
-        "**互动评价**：\n"
-        "- **活跃人数**：60人（占群总人数的20%），评分：⭐⭐⭐⭐（活跃度较高）\n"
-        "- **信息熵**：3.85，评分：⭐⭐⭐（讨论稍有不均衡）\n"
-        "- **话题多样性**：3个话题，评分：⭐⭐⭐⭐（话题较为丰富）\n"
-        "- **深度评分**：⭐⭐⭐（讨论深度一般，集中于基础问题）\n"
-        "\n"
-        "**整体总结**：\n"
-        "- 本次群内讨论主要围绕以下主题展开：技术问题解决与经验分享。\n"
-        "- 群内整体活跃情况为较高，讨论质量中等偏上。\n"
-        "- 突出特点为：快速高效的问题解答，讨论集中但缺乏深入拓展。\n"
+async def chat_with_gemini(messages, member_count, first_time=None, last_time=None):
+    from datetime import datetime
+
+    # 构造时间信息
+    time_info = ""
+    if first_time and last_time:
+        first_str = datetime.fromtimestamp(first_time).strftime("%m-%d %H:%M")
+        last_str = datetime.fromtimestamp(last_time).strftime("%m-%d %H:%M")
+        time_info = f"{first_str} ~ {last_str}"
+    else:
+        time_info = "未知"
+
+    # 昵称压缩 3位十六进制,rongliang 4096
+    name_to_code = {}
+    code_to_name = {}
+    code_idx = 0
+    compressed_messages = []
+
+    for msg in messages:
+        if ": " in msg:
+            name, content = msg.split(": ", 1)
+            if name not in name_to_code:
+                code = f"{code_idx:03X}"
+                name_to_code[name] = code
+                code_to_name[code] = name
+                code_idx += 1
+            compressed_messages.append(f"{name_to_code[name]}: {content}")
+        else:
+            compressed_messages.append(msg)
+
+    logger.debug(f"昵称映射: {code_to_name}")
+    logger.debug(
+        f"原始 {sum(len(m) for m in messages)} 字符, "
+        f"压缩后 {sum(len(m) for m in compressed_messages)} 字符, "
+        f"用户 {len(code_to_name)} 人"
     )
-    headers = {"Content-Type": "application/json"}
+
+    prompt = (
+        f"""你是群聊总结专家。请严格按以下要求输出：
+
+        采集时间段：{time_info}
+        群总人数：{member_count}人
+        聊天记录中的000、001等是用户代号，输出时请将代号还原为真实昵称，还原映射如下：
+        {chr(10).join(f"{code} = {name}" for code, name in code_to_name.items())}
+
+        要求：
+        1. 纯文本输出，禁止使用任何markdown符号（#、*、-、|、>、`等）。
+        2. 总字数控制在{wt_max_tokens}字以内。
+        3. 开头先写整体总结（3-4句话概括本次群聊主题、氛围、突出特点）。
+        4. 尽可能多地归纳话题，不要遗漏，哪怕某个话题只有两三个人聊了几句也要单独列出。
+        5. 每个话题要详细展开，列出讨论的来龙去脉、不同观点、关键转折点。
+        6. 结尾输出互动评价（活跃人数比例、话题数量、整体氛围，简短说明即可）。
+        7. 每个【】标题前面空一行。
+
+        输出格式：
+
+        【采集时间】{time_info}
+
+        【整体总结】
+        （3-4句话概括本次群聊的主题、整体氛围和突出特点）
+
+        【话题1】标题
+        主要内容：详细描述讨论的起因、经过、不同观点和结论，至少3-4句话。
+        关键用户：...
+
+        【话题2】标题
+        主要内容：详细描述讨论的起因、经过、不同观点和结论，至少3-4句话。
+        关键用户：...
+
+        【话题3】标题
+        主要内容：...
+        关键用户：...
+
+        （话题数量不限，有多少内容就总结多少个）
+
+        【互动评价】
+        活跃X人（占群总人数X%），话题X个，整体氛围..."""
+    )
+
+
+
     data = {
-        "contents": [
-            {"parts": [{"text": prompt}], "role": "user"},
-            {"parts": [{"text": "\n".join(messages)}], "role": "user"},
-        ]
+        "model": wt_model_name,
+        "messages": [
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": "\n".join(compressed_messages)},
+        ],
     }
+
     for wt_api_key in wt_api_keys:
-        url = (
-            f"https://generativelanguage.googleapis.com/v1beta/models/{wt_model_name}:generateContent?key={wt_api_key}"
-        )
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {wt_api_key}",
+        }
+
+        if "googleapis.com" in wt_base_url:
+            url = f"{wt_base_url}/models/{wt_model_name}:generateContent?key={wt_api_key}"
+            headers.pop("Authorization", None)
+            data = {
+                "contents": [
+                    {"parts": [{"text": prompt}], "role": "user"},
+                    {"parts": [{"text": "\n".join(compressed_messages)}], "role": "user"},
+                ]
+            }
+
+        else:
+            url = f"{wt_base_url}/chat/completions"
+            data = {
+                "model": wt_model_name,
+                "messages": [
+                    {"role": "system", "content": prompt},
+                    {"role": "user", "content": "\n".join(compressed_messages)},
+                ],
+            }
+            
+            if wt_thinking is not None:
+                data["reasoning_effort"] = "high"
+                data["extra_body"] = {"thinking": {"type": "enabled" if wt_thinking else "disabled"}}
+
         try:
             async with httpx.AsyncClient(
                 proxy=wt_proxy if wt_proxy else None,
                 timeout=300,
             ) as client:
-                response = await client.post(
-                    url,
-                    headers=headers,
-                    json=data,
-                )
+                response = await client.post(url, headers=headers, json=data)
                 response.raise_for_status()
                 result = response.json()
-                content = "".join(
-                    item.get("text", "")
-                    for item in result.get("candidates", [{}])[0].get("content", {}).get("parts", [])
-                )
+
+                if "choices" in result:
+                    content = result["choices"][0]["message"]["content"]
+                elif "candidates" in result:
+                    content = "".join(
+                        item.get("text", "")
+                        for item in result["candidates"][0]
+                        .get("content", {})
+                        .get("parts", [])
+                    )
+                else:
+                    logger.error(f"未知的响应格式: {result}")
+                    return None
+
+                logger.debug(f"原始输出: {content}")
+
+                # 还原昵称（按长度降序，避免短码误替换）
+                for code in sorted(code_to_name, key=len, reverse=True):
+                    content = content.replace(code, code_to_name[code])
+
+                logger.debug(f"还原后输出: {content}")
                 return content
+
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 429:
-                logger.warning(f"API Key {wt_api_key} 已超出限制，切换到下一个 API Key 重试。")
+                logger.warning(f"API Key {wt_api_key} 已超出限制，切换到下一个。")
                 continue
             else:
                 logger.error(f"调用 AI 接口失败: {e!s}")
@@ -236,7 +292,9 @@ async def chat_with_gemini(messages, member_count):
         except Exception as e:
             logger.error(f"发生预料之外的错误: {e!s}")
             raise Exception(f"发生预料之外的错误，错误信息: {e!s}")
+
     raise Exception("所有 API Key 均超出限制或调用失败。")
+
 
 
 # 解析 cron 表达式
@@ -262,12 +320,12 @@ async def push_whats_talk():
         if isinstance(bot, Bot):
             for group_id in wt_group_list:
                 try:
-                    messages = await get_history_chat(bot, group_id)
+                    messages, first_time, last_time = await get_history_chat(bot, group_id)
                     member_count = await get_group_member(bot, group_id)
                     if not messages:
                         await bot.send_group_msg(group_id=group_id, message="未能获取到聊天记录。")
                         continue
-                    summary = await chat_with_gemini(messages, member_count)
+                    summary = await chat_with_gemini(messages, member_count, first_time, last_time)
                     if not summary:
                         await bot.send_group_msg(group_id=group_id, message="生成聊天总结失败，请稍后再试。")
                         continue
