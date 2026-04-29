@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "nonebot-plugin-whats-talk-gemini"
-version = "0.0.6"
+version = "0.0.7"
 description = "分析群聊记录，生成近期讨论话题的总结。"
 authors = ["hakunomiko <48401273+hakunomiko@users.noreply.github.com>"]
 readme = "README.md"
