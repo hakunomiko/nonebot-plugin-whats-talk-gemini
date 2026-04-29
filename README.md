@@ -96,6 +96,6 @@ _✨ 分析群聊记录，生成近期讨论话题的总结。 ✨_
 
 同时感谢以下开发者对本插件作出的贡献：
 
-<a href="https://github.com/hakunomiko/nonebot-plugin-add-friends/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=hakunomiko/nonebot-plugin-add-friends&max=1000" />
+<a href="https://github.com/hakunomiko/nonebot-plugin-whats-talk-gemini/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=hakunomiko/nonebot-plugin-whats-talk-gemini&max=1000" />
 </a>
