@@ -93,3 +93,9 @@ _✨ 分析群聊记录，生成近期讨论话题的总结。 ✨_
 
 ## 🎉 鸣谢
 感谢[大橘](https://github.com/zhiyu1998)提供的prompt以及[插件灵感](https://github.com/zhiyu1998/rconsole-plugin-complementary-set/blob/master/whats-talk-gemini.js)。
+
+同时感谢以下开发者对 `Nonebot - R插件` 作出的贡献：
+
+<a href="https://github.com/hakunomiko/nonebot-plugin-add-friends/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=hakunomiko/nonebot-plugin-add-friends&max=1000" />
+</a>
